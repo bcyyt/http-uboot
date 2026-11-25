@@ -135,8 +135,17 @@ static bool recovery_board_is_sbe1v1k(void)
 #define RECOVERY_SBE1V1K_KERNEL_START      118818ULL
 #define RECOVERY_SBE1V1K_KERNEL_SIZE       65536ULL
 #define RECOVERY_SBE1V1K_ROOTFS_START      184354ULL
-#define RECOVERY_SBE1V1K_ROOTFS_SIZE       2097152ULL
-#define RECOVERY_SBE1V1K_DATA_START        2281506ULL
+/*
+ * 256 MiB system partition.  The sysupgrade root (squashfs) is ~83 MiB, so
+ * this keeps >3x headroom while freeing 768 MiB for user data.  The overlay
+ * (rootfs_data) is sized to 2 GiB and everything after it becomes a plain
+ * "data" partition that the OS can mount wherever the user wants.
+ */
+#define RECOVERY_SBE1V1K_ROOTFS_SIZE       524288ULL
+#define RECOVERY_SBE1V1K_DATA_START        708642ULL
+#define RECOVERY_SBE1V1K_DATA_SIZE         4194304ULL
+#define RECOVERY_SBE1V1K_USERDATA_START    (RECOVERY_SBE1V1K_DATA_START + \
+					    RECOVERY_SBE1V1K_DATA_SIZE)
 #define RECOVERY_SBE1V1K_MAINLINE_KERNEL_START 81954ULL
 #define RECOVERY_SBE1V1K_MAINLINE_KERNEL_SIZE  14336ULL
 #define RECOVERY_SBE1V1K_MAINLINE_ROOTFS_START 110626ULL
@@ -455,7 +464,7 @@ static const struct recovery_sbe1v1k_layout_desc sbe1v1k_layout_large = {
 	.rootfs_start = RECOVERY_SBE1V1K_ROOTFS_START,
 	.rootfs_size = RECOVERY_SBE1V1K_ROOTFS_SIZE,
 	.data_start = RECOVERY_SBE1V1K_DATA_START,
-	.data_size = 0,
+	.data_size = RECOVERY_SBE1V1K_DATA_SIZE,
 	.uboot_start = RECOVERY_SBE1V1K_CHAINLOADER_START,
 	.uboot_size = RECOVERY_SBE1V1K_CHAINLOADER_SIZE,
 	.kernel_pad = RECOVERY_SBE1V1K_KERNEL_SIZE * 512,
@@ -3913,7 +3922,24 @@ static int recovery_build_sbe1v1k_gpt(
 
 		ret = recovery_append_gpt_part(gpt,
 					       RECOVERY_SBE1V1K_GPT_MAX, &off,
-					       "rootfs_data", layout->data_start, 0,
+					       "rootfs_data", layout->data_start,
+					       layout->data_size, desc->blksz,
+					       RECOVERY_GPT_TYPE_LINUX_FS,
+					       NULL, false);
+		if (ret)
+			goto err;
+
+		/*
+		 * User data partition filling the rest of the tail.  It is
+		 * deliberately NOT part of the layout descriptor: firmware
+		 * flashing only touches kernel/rootfs/rootfs_data, so user
+		 * data survives reflash and layout migration.
+		 */
+		ret = recovery_append_gpt_part(gpt,
+					       RECOVERY_SBE1V1K_GPT_MAX, &off,
+					       "data",
+					       layout->data_start +
+					       layout->data_size, 0,
 					       desc->blksz,
 					       RECOVERY_GPT_TYPE_LINUX_FS,
 					       NULL, false);

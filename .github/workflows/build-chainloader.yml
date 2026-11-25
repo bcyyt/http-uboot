@@ -1,0 +1,45 @@
+name: build chainloader
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [sbe1v1k]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            bison flex device-tree-compiler libssl-dev \
+            python3 python3-dev swig bc
+
+      - name: Configure
+        run: make sbe1v1k_chainloader_defconfig
+
+      - name: Build U-Boot
+        run: make -j$(nproc) CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Package chainloader FIT
+        run: |
+          ./board/qualcomm/sbe1v1k-chainloader-fit/build-chainloader-fit.sh \
+            --outdir sbe1v1k-chainloader \
+            --cc aarch64-linux-gnu-gcc \
+            --objcopy aarch64-linux-gnu-objcopy
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbe1v1k-chainloader
+          if-no-files-found: error
+          path: |
+            sbe1v1k-chainloader/sbe1v1k-chainloader.itb
+            sbe1v1k-chainloader/sbe1v1k-chainloader-partition.img
+            sbe1v1k-chainloader/sbe1v1k-chainloader-hlos.elf
